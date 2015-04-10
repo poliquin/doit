@@ -85,6 +85,10 @@ class DoitMain(object):
         """get all sub-commands
         :return dict: name - Command class
         """
+        # hack for doit 0.27 backward compatibility
+        if hasattr(self, '_cmd_instances'): # pragma: no cover
+            return self._cmd_instances
+
         sub_cmds = PluginDict()
         # core doit commands
         for cmd_cls in self.DOIT_CMDS:
@@ -93,6 +97,23 @@ class DoitMain(object):
         sub_cmds.add_plugins(self.config, 'COMMAND')
         return sub_cmds
 
+    # hack for doit 0.27 backward compatibility
+    def get_commands(self): # pragma: no cover
+        """return command instances"""
+        if hasattr(self, '_cmd_instances'): # nikola hack
+            return self._cmd_instances
+        if not hasattr(self, 'config'):
+            self.config = defaultdict(dict)
+        cmd_cls = self.get_cmds()
+        instances = {}
+        for name, cls in cmd_cls.items():
+            cls.name = name
+            instances[name] = cls(task_loader=self.task_loader,
+                                  cmds=cmd_cls)
+            cls.options = instances[name].get_options()
+
+        self._cmd_instances = instances
+        return instances
 
     def process_args(self, cmd_args):
         """process cmd line set "global" variables/parameters
@@ -148,10 +169,15 @@ class DoitMain(object):
             cmd_name = args.pop(0)
 
         # execute command
-        command = sub_cmds.get_plugin(cmd_name)(
-            task_loader=self.task_loader,
-            cmds=sub_cmds,
-            config=self.config,)
+        if isinstance(sub_cmds, PluginDict):
+            command = sub_cmds.get_plugin(cmd_name)(
+                task_loader=self.task_loader,
+                cmds=sub_cmds,
+                config=self.config,)
+        # hack for doit 0.27 backward compatibility
+        else: # pragma: no cover
+            command = sub_cmds[cmd_name]
+            command.cmds = {k: v.__class__ for k,v in sub_cmds.items()}
 
         try:
             return command.parse_execute(args)
